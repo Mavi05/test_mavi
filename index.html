@@ -43,7 +43,10 @@
                 const { ollamaUrl, modelName, prompt, imageData, requestId } = event.data;
                 
                 try {
-                    // Make the API call to Ollama
+                    // Make the API call to Ollama with longer timeout
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 1200000); // 20 minutes timeout
+                    
                     const response = await fetch(`${ollamaUrl}/api/generate`, {
                         method: 'POST',
                         headers: {
@@ -53,9 +56,17 @@
                             model: modelName,
                             prompt: prompt,
                             images: [imageData],
-                            stream: false
-                        })
+                            stream: false,
+                            options: {
+                                temperature: 0.7,
+                                top_p: 0.9,
+                                num_ctx: 4096
+                            }
+                        }),
+                        signal: controller.signal
                     });
+
+                    clearTimeout(timeoutId);
 
                     if (!response.ok) {
                         throw new Error(`Ollama API error: ${response.status} ${response.statusText}`);
@@ -74,13 +85,21 @@
                     }, '*');
 
                 } catch (error) {
+                    let errorMessage = error.message;
+                    
+                    if (error.name === 'AbortError') {
+                        errorMessage = 'Request timed out after 2 minutes. Try with a smaller image or check if Ollama is responding.';
+                    } else if (error.message.includes('Failed to fetch')) {
+                        errorMessage = 'Cannot connect to Ollama. Make sure it is running and CORS is enabled.';
+                    }
+                    
                     // Send error response back to plugin
                     parent.postMessage({
                         pluginMessage: {
                             type: 'analyze-response',
                             requestId: requestId,
                             success: false,
-                            error: error.message
+                            error: errorMessage
                         }
                     }, '*');
                 }
